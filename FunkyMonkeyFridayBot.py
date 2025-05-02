@@ -6,6 +6,7 @@ import datetime
 import time
 from discord.ext import tasks
 import pytz
+import json
 
 print(datetime.datetime.now())
 
@@ -15,6 +16,26 @@ def MonkeyTime():
   RandomGif = random.choice(os.listdir("FunkyMonkeyGifs"))
   return RandomGif
 
+
+
+def save_config(config, CONFIG_FILE="config.json"):
+    with open('configs/'+CONFIG_FILE, "w") as f:
+        json.dump(config, f)
+
+def load_config(CONFIG_FILE="config.json"):
+    print("Server ID: {} requested status update".format(CONFIG_FILE))
+    if os.path.exists('configs/'+CONFIG_FILE):
+        with open('configs/'+ CONFIG_FILE, "r") as f:
+            return json.load(f)
+    return None
+
+def load_configs():
+    configs = []
+    for file in os.listdir('configs/'):
+        with open('configs/'+file, "r") as f:
+            configs.append(json.load(f))
+    return configs
+
 intents = discord.Intents.default()
 intents.message_content = True
 client = discord.Client(intents=intents)
@@ -22,8 +43,36 @@ client = discord.Client(intents=intents)
 # Startup console message
 @client.event
 async def on_ready():
-  print('We have logged in as {0.user}'.format(client))
-  await client.change_presence(activity=discord.Game(name='around'))
+    print('We have logged in as {0.user}'.format(client))
+    await client.change_presence(activity=discord.Game(name='around'))
+    
+    configs = load_configs()
+    print(configs)
+    for config in configs:
+        if config:
+            print(config)
+            h = config['hour']
+            m = config['minute']
+            ZoneSelection = config['timezone']
+            channel_id = config['channel_id']
+            print('alerts are active for {}:{}, {}'.format(h, m, ZoneSelection))
+            
+            @tasks.loop(seconds=30.0)
+            async def alerts(h, m, ZoneSelection, channel_id):
+                if datetime.datetime.now(tz=pytz.timezone(ZoneSelection)).weekday() == 4 and datetime.datetime.now(tz=pytz.timezone(ZoneSelection)).hour == h and datetime.datetime.now(tz=pytz.timezone(ZoneSelection)).minute == m:
+                    await client.get_channel(channel_id).send("@everyone **IT'S FUNKY MONKEY FRIDAY! SEIZE THE DAY!**", file=discord.File("FunkyMonkeyGifs/" + MonkeyTime()))
+                    time.sleep(60)
+                    print("Sent!")
+                else:
+                    print("No alerts to send")
+                print("Channel ID: {}".format(channel_id))
+                print('Day: {}'.format(datetime.datetime.now(tz=pytz.timezone(ZoneSelection)).weekday()))
+                print('Time: {}'.format(datetime.datetime.now(tz=pytz.timezone(ZoneSelection))))
+                print('alerts are active for {}:{}, {}'.format(h, m, ZoneSelection))
+            
+            alerts.start(h, m, ZoneSelection, channel_id)
+        else:
+            print("No configurations found")
 
 # All functionality begins when a message is sent
 @client.event
@@ -53,6 +102,14 @@ async def on_message(message):
       country
       country = country.content
       await message.channel.send('**{} Timezones**\n`{}`'.format(country, (pytz.country_timezones(country))))
+
+    # status command, send when scheduled
+    if message.content.startswith('!status'):
+      config = load_config(f"{message.guild.id}.json")
+      if config:
+        await message.channel.send("You're next Funky Monkey Friday alert is scheduled for {}:{}, {} on the next Friday".format(config['hour'], config['minute'], config['timezone']))
+      else:
+        await message.channel.send("You have not configured Funky Monkey Friday alerts yet")
 
     # configuration command
     if message.content.startswith('!config'):
@@ -93,6 +150,14 @@ async def on_message(message):
       print(datetime.datetime.now(tz=pytz.timezone(ZoneSelection)))
       await message.channel.send('`Your timezone has been set to {}`'.format(dt_new))
 
+      config = {
+          'hour': h,
+          'minute': m,
+          'timezone': ZoneSelection,
+          'channel_id': message.channel.id
+      }
+      save_config(config, f"{message.guild.id}.json")
+
       # show the user their configuration
       await message.channel.send("You're next Funky Monkey Friday alert is scheduled for {}:{}, {} on the next Friday".format(h, m, ZoneSelection))
       if h != 'undef' and m != 'undef' and ZoneSelection != 'undef':
@@ -105,6 +170,7 @@ async def on_message(message):
             await message.channel.send("@everyone **IT'S FUNKY MONKEY FRIDAY! SEIZE THE DAY!**", file=discord.File("FunkyMonkeyGifs/" + MonkeyTime()))
             time.sleep(60)
             print("Sent!")
+          print("Channel ID: {}".format(config['channel_id']))
           print('Day: {}'.format(datetime.datetime.now(tz=pytz.timezone(ZoneSelection)).weekday()))
           print('Time: {}'.format(datetime.datetime.now(tz=pytz.timezone(ZoneSelection))))
           print('alerts are active for {}:{}, {}'.format(h, m, ZoneSelection))
